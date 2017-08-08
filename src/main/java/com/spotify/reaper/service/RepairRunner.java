@@ -43,6 +43,7 @@ import com.spotify.reaper.core.RepairUnit;
 import com.spotify.reaper.storage.IDistributedStorage;
 import java.util.Collection;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class RepairRunner implements Runnable {
 
@@ -321,9 +322,9 @@ public class RepairRunner implements Runnable {
 
     List<String> potentialCoordinators;
     if(!repairUnit.getIncrementalRepair()) {
-    	// full repair    
+    	    // full repair
 	    try {
-	      potentialCoordinators = jmxConnection.tokenRangeToEndpoint(keyspace, tokenRange);
+	       potentialCoordinators = jmxConnection.tokenRangeToEndpoint(keyspace, tokenRange);
 	    } catch (RuntimeException e) {
 	      LOG.warn("Couldn't get token ranges from coordinator: #{}", e);
 	      return true;
@@ -344,10 +345,8 @@ public class RepairRunner implements Runnable {
 	      }
 	      return false;
 	    }
-    } 
-    else {
-    	potentialCoordinators 
-                = Arrays.asList(context.storage.getRepairSegment(repairRunId, segmentId).get().getCoordinatorHost());
+    } else {
+    	    potentialCoordinators = Arrays.asList(context.storage.getRepairSegment(repairRunId, segmentId).get().getCoordinatorHost());
     }
 
     try {
@@ -366,11 +365,11 @@ public class RepairRunner implements Runnable {
           @Override
           public void onFailure(Throwable t) {
             currentlyRunningSegments.set(rangeIndex, null);
-            LOG.error("Executing SegmentRunner failed: {}", t.getMessage());
+            LOG.error("Executing SegmentRunner failed", t);
           }
         });
     } catch (ReaperException ex) {
-        LOG.error("Executing SegmentRunner failed: {}", ex.getMessage());
+        LOG.error("Executing SegmentRunner failed", ex);
     }
 
     return true;

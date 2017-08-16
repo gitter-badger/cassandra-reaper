@@ -126,7 +126,7 @@ public final class SegmentRunner implements RepairStatusHandler, Runnable {
             }
           }
         } finally {
-          releaseLeadOnSegment();
+            // intentionally do not release, as it permits segment reads/writes to be local_quorum instead of quorum
         }
     }
   }
@@ -678,7 +678,7 @@ public final class SegmentRunner implements RepairStatusHandler, Runnable {
 
     private boolean takeLeadOnSegment() {
         try (Timer.Context cxt = context.metricRegistry
-                .timer(MetricRegistry.name(SegmentRunner.class, "takeLeadOnSegment")).time()) {
+                .timer(MetricRegistry.name(SegmentRunner.class, "takeLead")).time()) {
 
             return context.storage instanceof IDistributedStorage
                 ? ((IDistributedStorage)context.storage).takeLeadOnSegment(leaderElectionId)
@@ -688,21 +688,11 @@ public final class SegmentRunner implements RepairStatusHandler, Runnable {
 
     private boolean renewLeadOnSegment() {
         try (Timer.Context cxt = context.metricRegistry
-                .timer(MetricRegistry.name(SegmentRunner.class, "renewLeadOnSegment")).time()) {
+                .timer(MetricRegistry.name(SegmentRunner.class, "renewLead")).time()) {
 
             return context.storage instanceof IDistributedStorage
                 ? ((IDistributedStorage)context.storage).renewLeadOnSegment(leaderElectionId)
                 : true;
-        }
-    }
-
-    private void releaseLeadOnSegment() {
-        try (Timer.Context cxt = context.metricRegistry
-                .timer(MetricRegistry.name(SegmentRunner.class, "releaseLeadOnSegment")).time()) {
-
-            if (context.storage instanceof IDistributedStorage) {
-                ((IDistributedStorage)context.storage).releaseLeadOnSegment(leaderElectionId);
-            }
         }
     }
     

@@ -215,7 +215,7 @@ public final class RepairManager {
 
   private static boolean takeLeadOnSegment(AppContext context, UUID leaderElectionId) {
     try (Timer.Context cxt = context.metricRegistry
-            .timer(MetricRegistry.name(RepairManager.class, "takeLeadOnSegment")).time()) {
+            .timer(MetricRegistry.name(RepairManager.class, "takeLead")).time()) {
 
         return context.storage instanceof IDistributedStorage
             ? ((IDistributedStorage)context.storage).takeLeadOnSegment(leaderElectionId)
@@ -225,7 +225,7 @@ public final class RepairManager {
 
   private static void releaseLeadOnSegment(AppContext context, UUID leaderElectionId) {
     try (Timer.Context cxt = context.metricRegistry
-            .timer(MetricRegistry.name(RepairManager.class, "releaseLeadOnSegment")).time()) {
+            .timer(MetricRegistry.name(RepairManager.class, "releaseLead")).time()) {
 
         if (context.storage instanceof IDistributedStorage) {
             ((IDistributedStorage)context.storage).releaseLeadOnSegment(leaderElectionId);

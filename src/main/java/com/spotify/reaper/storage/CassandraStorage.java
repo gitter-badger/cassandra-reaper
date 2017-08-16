@@ -95,13 +95,13 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
   private PreparedStatement insertRepairScheduleByClusterAndKsPrepStmt;
   private PreparedStatement deleteRepairSchedulePrepStmt;
   private PreparedStatement deleteRepairScheduleByClusterAndKsPrepStmt;
-  private PreparedStatement getLeadOnSegmentPrepStmt;
-  private PreparedStatement renewLeadOnSegmentPrepStmt;
-  private PreparedStatement releaseLeadOnSegmentPrepStmt;
+  private PreparedStatement takeLeadPrepStmt;
+  private PreparedStatement renewLeadPrepStmt;
+  private PreparedStatement releaseLeadPrepStmt;
   private PreparedStatement getRunningReapersCountPrepStmt;
   private PreparedStatement saveHeartbeatPrepStmt;
 
-  private DateTime lastHeartBeat = DateTime.now();
+  private volatile DateTime lastHeartBeat = DateTime.now();
 
   public CassandraStorage(ReaperApplicationConfiguration config, Environment environment) {
     CassandraFactory cassandraFactory = config.getCassandraFactory();
@@ -147,8 +147,8 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
     deleteRepairRunByUnitPrepStmt = session.prepare("DELETE FROM repair_run_by_unit WHERE id = ? and repair_unit_id= ?");
     insertRepairUnitPrepStmt = session.prepare("INSERT INTO repair_unit_v1(id, cluster_name, keyspace_name, column_families, incremental_repair) VALUES(?, ?, ?, ?, ?)");
     getRepairUnitPrepStmt = session.prepare("SELECT * FROM repair_unit_v1 WHERE id = ?");
-    insertRepairSegmentPrepStmt = session.prepare("INSERT INTO repair_run(id, segment_id, repair_unit_id, start_token, end_token, segment_state, coordinator_host, segment_start_time, segment_end_time, fail_count) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").setConsistencyLevel(ConsistencyLevel.QUORUM);
-    getRepairSegmentPrepStmt = session.prepare("SELECT id,repair_unit_id,segment_id,start_token,end_token,segment_state,coordinator_host,segment_start_time,segment_end_time,fail_count FROM repair_run WHERE id = ? and segment_id = ?").setConsistencyLevel(ConsistencyLevel.QUORUM);
+    insertRepairSegmentPrepStmt = session.prepare("INSERT INTO repair_run(id, segment_id, repair_unit_id, start_token, end_token, segment_state, coordinator_host, segment_start_time, segment_end_time, fail_count) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM);
+    getRepairSegmentPrepStmt = session.prepare("SELECT id,repair_unit_id,segment_id,start_token,end_token,segment_state,coordinator_host,segment_start_time,segment_end_time,fail_count FROM repair_run WHERE id = ? and segment_id = ?").setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM);
     getRepairSegmentsByRunIdPrepStmt = session.prepare("SELECT id,repair_unit_id,segment_id,start_token,end_token,segment_state,coordinator_host,segment_start_time,segment_end_time,fail_count FROM repair_run WHERE id = ?");
     insertRepairSchedulePrepStmt = session.prepare("INSERT INTO repair_schedule_v1(id, repair_unit_id, state, days_between, next_activation, run_history, segment_count, repair_parallelism, intensity, creation_time, owner, pause_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").setConsistencyLevel(ConsistencyLevel.QUORUM);
     getRepairSchedulePrepStmt = session.prepare("SELECT * FROM repair_schedule_v1 WHERE id = ?").setConsistencyLevel(ConsistencyLevel.QUORUM);
@@ -156,9 +156,9 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
     getRepairScheduleByClusterAndKsPrepStmt = session.prepare("SELECT repair_schedule_id FROM repair_schedule_by_cluster_and_keyspace WHERE cluster_name = ? and keyspace_name = ?");
     deleteRepairSchedulePrepStmt = session.prepare("DELETE FROM repair_schedule_v1 WHERE id = ?");
     deleteRepairScheduleByClusterAndKsPrepStmt = session.prepare("DELETE FROM repair_schedule_by_cluster_and_keyspace WHERE cluster_name = ? and keyspace_name = ? and repair_schedule_id = ?");
-    getLeadOnSegmentPrepStmt = session.prepare("INSERT INTO segment_leader(segment_id, reaper_instance_id, reaper_instance_host, last_heartbeat) VALUES(?, ?, ?, dateof(now())) IF NOT EXISTS").setIdempotent(false);
-    renewLeadOnSegmentPrepStmt = session.prepare("UPDATE segment_leader SET reaper_instance_id = ?, reaper_instance_host = ?, last_heartbeat = dateof(now()) WHERE segment_id = ? IF reaper_instance_id = ?").setIdempotent(false);
-    releaseLeadOnSegmentPrepStmt = session.prepare("DELETE FROM segment_leader WHERE segment_id = ? IF reaper_instance_id = ?");
+    takeLeadPrepStmt = session.prepare("INSERT INTO leader(leader_id, reaper_instance_id, reaper_instance_host, last_heartbeat) VALUES(?, ?, ?, dateof(now())) IF NOT EXISTS").setIdempotent(false);
+    renewLeadPrepStmt = session.prepare("UPDATE leader SET reaper_instance_id = ?, reaper_instance_host = ?, last_heartbeat = dateof(now()) WHERE leader_id = ? IF reaper_instance_id = ?").setIdempotent(false);
+    releaseLeadPrepStmt = session.prepare("DELETE FROM leader WHERE leader_id = ? IF reaper_instance_id = ?");
     getRunningReapersCountPrepStmt = session.prepare("SELECT count(*) as nb_reapers FROM running_reapers");
     saveHeartbeatPrepStmt = session.prepare("INSERT INTO running_reapers(reaper_instance_id, reaper_instance_host, last_heartbeat) VALUES(?,?,dateof(now()))").setIdempotent(false);
   }
@@ -769,7 +769,7 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
   public boolean takeLeadOnSegment(UUID incrementalReapirOrsegmentId) {
     LOG.debug("Trying to take lead on segment {}", incrementalReapirOrsegmentId);
     ResultSet lwtResult = session.execute(
-            getLeadOnSegmentPrepStmt.bind(
+            takeLeadPrepStmt.bind(
                     incrementalReapirOrsegmentId,
                     ReaperApplication.REAPER_INSTANCE_ID,
                     ReaperApplication.getInstanceAddress()));
@@ -787,7 +787,7 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
   @Override
   public boolean renewLeadOnSegment(UUID incrementalReapirOrsegmentId) {
     ResultSet lwtResult = session.execute(
-            renewLeadOnSegmentPrepStmt.bind(
+            renewLeadPrepStmt.bind(
                     ReaperApplication.REAPER_INSTANCE_ID,
                     ReaperApplication.getInstanceAddress(),
                     incrementalReapirOrsegmentId,
@@ -805,7 +805,7 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
   @Override
   public void releaseLeadOnSegment(UUID incrementalReapirOrsegmentId) {
     ResultSet lwtResult = session.execute(
-            releaseLeadOnSegmentPrepStmt.bind(incrementalReapirOrsegmentId, ReaperApplication.REAPER_INSTANCE_ID));
+            releaseLeadPrepStmt.bind(incrementalReapirOrsegmentId, ReaperApplication.REAPER_INSTANCE_ID));
 
     if (lwtResult.wasApplied()) {
       LOG.debug("Released lead on segment {}", incrementalReapirOrsegmentId);
@@ -817,7 +817,7 @@ public final class CassandraStorage implements IStorage, IDistributedStorage {
 
   private boolean hasLeadOnSegment(UUID incrementalReapirOrsegmentId) {
     ResultSet lwtResult = session.execute(
-            renewLeadOnSegmentPrepStmt.bind(
+            renewLeadPrepStmt.bind(
                 ReaperApplication.REAPER_INSTANCE_ID,
                 ReaperApplication.getInstanceAddress(),
                 incrementalReapirOrsegmentId,
